@@ -21,6 +21,7 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"log"
 	"math"
@@ -28,6 +29,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"image"
+	"image/color"
+	"image/png"
 )
 
 type Entry struct {
@@ -204,6 +209,7 @@ func main() {
 	vertices := make([]Vec3, bsp.Vertices.Size/12)
 	surfaces := make([]Surface, bsp.Texinfo.Size/40)
 	faces := make([]Face, bsp.Faces.Size/20)
+	lightmaps := make([]uint8, bsp.Lightmaps.Size)
 	edges := make([]Edge, bsp.Edges.Size/4)
 	edges_list := make([]int32, bsp.EdgesList.Size/4)
 	models := make([]Model, bsp.Models.Size/64)
@@ -217,6 +223,9 @@ func main() {
 	_, _ = file.Seek(int64(bsp.Faces.Offset), io.SeekStart)
 	_ = binary.Read(file, binary.LittleEndian, &faces)
 
+	_, _ = file.Seek(int64(bsp.Lightmaps.Offset), io.SeekStart)
+	_ = binary.Read(file, binary.LittleEndian, &lightmaps)
+
 	_, _ = file.Seek(int64(bsp.Edges.Offset), io.SeekStart)
 	_ = binary.Read(file, binary.LittleEndian, &edges)
 
@@ -225,6 +234,23 @@ func main() {
 
 	_, _ = file.Seek(int64(bsp.Models.Offset), io.SeekStart)
 	_ = binary.Read(file, binary.LittleEndian, &models)
+
+/*
+	lm_file, _ := os.Create("lightmap.png")
+
+	var vv = int(math.Sqrt(float64(bsp.Lightmaps.Size)))
+	lm_image := image.NewGray(image.Rect(0, 0, vv, vv))
+
+	for i := 0; i < vv; i++ {
+		for j := 0; j < vv; j++ {
+			lm_image.Set(i, j, color.Gray{lightmaps[i*vv +j]})
+		}
+	}
+
+	png.Encode(lm_file, lm_image)
+	*/
+
+	var lightmap_images []*image.Gray
 
 	for model_idx, model := range models {
 		material_map = make(map[uint32]int)
@@ -316,8 +342,42 @@ func main() {
 				uv_light_list = append(uv_light_list, 1)
 				uv_light_list = append(uv_light_list, 1)
 			}
-		}
 
+			if face.Lightmap != -1 {
+
+				var light_w = int(((u_max-u_min) * float64(mip.Width))/16.0+2.0)
+				var light_h = int(((v_max-v_min) * float64(mip.Height))/16.0+2.0)
+
+		//		light_w = int((v_max-v_min) * float64(mip.Width)/16.0)
+		//		light_h = int((u_max-u_min) * float64(mip.Height)/16.0)
+
+				fmt.Printf("--> %d %d\n", mip.Width, mip.Height)
+				fmt.Printf("->u: %f, %f\n", u_max-u_min, (u_max-u_min) * float64(mip.Width))
+				fmt.Printf("->v: %f, %f\n", v_max-v_min, (v_max-v_min) * float64(mip.Height))
+
+
+				fmt.Printf("-> %dx%d\n", light_w, light_h)
+
+				myimage := image.NewGray(image.Rect(0, 0, light_w, light_h))
+
+				for i := 0; i < light_h; i++ {
+					for j := 0; j < light_w; j++ {
+						myimage.Set(j, i, color.Gray{lightmaps[face.Lightmap+int32(i*light_w+j)]})
+					}
+				}
+
+				lightmap_images = append(lightmap_images, myimage)
+
+				myfile, _ := os.Create("test.png")
+
+				png.Encode(myfile, myimage)
+
+				if (light_w > 10 && light_h > 10) {
+					return
+				}
+			}
+		}
+		return
 		var out *os.File
 
 		if model_idx == 0 {
